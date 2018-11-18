@@ -9,6 +9,7 @@ def get_argument():
     parser = argparse.ArgumentParser()
     parser.add_argument('command', nargs='+', help='init/add/commit/snapshots/index/config/status')
     parser.add_argument('--author', action='store')
+    parser.add_argument('-m', action='store')
     args = parser.parse_args()
     return args
 
@@ -17,27 +18,128 @@ def main():
     args = get_argument()
     content_index = []
     command = args.command[0]
+    author = os.environ['LOGNAME']
     if command == 'init':
-        create_dir()
+        author = create_dir()
     elif command == 'add':
         argument = args.command[1:]
         flag = 1
         for item in argument:
             if not os.path.exists(item):
                 print("fatal: pathspec '" + item +
-                      "'did not match any files")
+                      "' did not match any files")
                 flag = 0
                 break
-        if flaf == 1:
+        if flag == 1:
             for item in argument:
                 list_index = lgit_add(item)
-                content_index = add_list(list_index, content_index)  # (3)
-            write_index('\n'.join(content_index) + '\n')  # (1)
+                content_index = add_list(list_index, content_index)
+                print(content_index)  # (3)
+            write_index_content(content_index)
+    elif command == 'rm':
+        argument = args.command[1:]
+        for item in argument:
+            if not os.path.exists(item):
+                print("fatal: pathspec '" + item +
+                      "' did not match any files")
+                break
+            else:
+                update_index = remove_index(item)
+                print(update_index)
+                if update_index == 0:
+                    print("fatal: pathspec '" + item +
+                          "' did not match any files")
+                else:
+                    write_index('\n'.join(update_index) + '\n')
+
+
+    elif command == 'config':
+        author = args.author
+        config(args.author)
+    elif command == 'commit':
+        # not do fatal error of commit: not init
+        lgit_commit(args.m, author)
+
+
+def write_index_content(content):
+    with open(os.getcwd() + '/.lgit/index','r+') as file:
+        lines = file.readlines()
+    for line_content in content:
+        path_name = line_content.split(' ')[-1]
+        flag = 0
+        for i in range(len(lines)):
+            lines[i] = lines[i].strip()
+            path_index = lines[i].split(' ')[-1]
+            if path_name == path_index:
+                lines[i] = line_content
+                flag = 1
+        if flag == 0:
+            lines.append(line_content)
+    write_index('\n'.join(lines) + '\n')
+
+
+def lgit_commit(mess, author):
+    check = 0
+    with open(os.getcwd() + '/.lgit/index', 'r+') as file:
+        lines = file.readlines()
+    for x in range(len(lines)):
+        subline = []
+        for y in lines[x].split(' '):
+            if y != '':
+                subline.append(y)
+        if len(subline) == 4:
+            subline.insert(3, subline[2])
+            check = 1
+        elif subline[3] != subline[2]:
+            subline[3] = subline[2]
+            check = 1
+        lines[x] = ' '.join(subline)
+    if check == 1:
+        with open(os.getcwd() + '/.lgit/index', 'w+') as file:
+            file.write(''.join(lines))
+        time = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
+        with open(os.getcwd() + '/.lgit/commits/' + time, 'w+') as file:
+            file.write(author + '\n')
+            file.write(time.split('.')[0] + '\n\n')
+            file.write(mess + '\n')
+        with open(os.getcwd() + '/.lgit/snapshots/' + time, 'w+') as f:
+            for line in lines:
+                f.write(line.split(' ')[3] + ' ' + line.split(' ')[4])
+    elif check == 0:
+        print('On branch mFile1aster')
+        print("Your branch is up-to-date with 'origin/master'.")
+        print('nothing to commit, working directory clean')
+
+
+def remove_index(filename): # find pathname_deleted in index and rm file # (2)
+    path = os.getcwd()
+    update_index = []
+    flag = 0
+    with open(path + "/.lgit/index", "r") as f_index:
+        lines = f_index.readlines()
+    print(lines)
+    for line in lines:
+        path = (line.split(' ')[-1]).strip()
+        if filename == path:
+            flag = 1
+        if filename != path:
+            update_index.append(line.strip())
+            print(update_index)
+    if flag == 0:
+        return flag  # if not have turn 0
+    else:
+        return update_index  # if have turn list are deleted file index
+
+
+def config(author):
+    file = os.getcwd() + '/.lgit/config'
+    with open(file, 'w+') as f:
+        f.write(author)
 
 
 def write_index(content):  #write file index # (1)
     path = os.getcwd()
-    with open(path + "/.lgit/index", 'a+') as f_index:
+    with open(path + "/.lgit/index", 'w') as f_index:
         f_index.write(content)
     f_index.close()
 
@@ -45,6 +147,7 @@ def write_index(content):  #write file index # (1)
 
 #-------------------------------LGIT ADD----------------------------------
 def lgit_add(file_name):
+    # split ./ from the start of file
     list_index = []
     if os.path.isdir(file_name):
         files = directory_tree_list(file_name)
@@ -69,7 +172,7 @@ def directory_tree_list(path):
 
 def create_file_objects(filename):
     path = os.getcwd()
-    file_content = open(filename,'r').read()
+    file_content = open(filename,'r+').read()
     path_objects = path +'/.lgit/objects'
     hash_sha1 = caculate_sha1_file(filename)
     file_name = hash_sha1[2:]
@@ -82,6 +185,12 @@ def create_file_objects(filename):
     hash_sha2 = caculate_sha1_file(path_objects + "/" + dir_name + "/" + file_name)
     index = create_structure_index(filename, hash_sha1, hash_sha2)
     return(index)
+
+
+def add_list(list, list_add):  # (3)
+    for i in list:
+        list_add.append(i)
+    return list_add
 
 
 def caculate_sha1_file(filename):
@@ -109,7 +218,10 @@ def create_structure_index(filename, hash1, hash2):
 def get_timestamp(filename):
     t = os.path.getmtime(filename)
     time = str(datetime.datetime.fromtimestamp(t))
+    stamp = datetime.datetime.fromtimestamp(t).timestamp() * 1000
+    print(stamp)
     list1 = time.split('.')
+    print(list1)
     time = list1[0]
     list_time = list(time)
     timestamp = []
@@ -130,7 +242,7 @@ def create_dir():
     os.mkdir(path)
     os.mkdir(path + '/commits')
     os.mkdir(path + '/objects')
-    os.mkdir(path + '/snapshot')
+    os.mkdir(path + '/snapshots')
     filename_index = os.path.join(path,'index')
     file = open(filename_index, 'w+')
     file.close()
